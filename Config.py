@@ -20,6 +20,7 @@ os.chdir(root_dir)
 # IDM路径
 idm_path = r"D:\Softwares\IDM\Internet Download Manager\IDMan.exe"
 region_path = r'E:\SoftwaresStorage\ArcGISPro_Storage\Projects\PrecipitationDownscaling\research_region\research_region_block.shp'
+model_dir = os.path.join(root_dir, 'Asset', 'models')
 # 资源文件夹
 resources_dir = os.path.join(root_dir, 'Resources')
 # 进度条样式
@@ -52,3 +53,7 @@ request = {
     "data_format": "netcdf",  # 输出格式为NetCDF4格式(.nc文件), 可选('grib', 'netcdf')
     "download_format": "unarchived"  # 不压缩下载, 可选('unarchived', 'zip')
 }
+
+# 模型
+random_state = 42  # 随机种子
+class_name = 'prcp_class'

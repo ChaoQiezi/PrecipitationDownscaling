@@ -5,26 +5,28 @@
 # @FileName: station_preprocessing
 
 """
-This script is used to 气象站点数据
+This script is used to 气象站点数据预处理: 经纬度匹配, 插值
 """
 
 import re
 import os
+import pandas as pd
 from glob import glob
 
 import Config
 
-# 准备
-in_dir = r'G:\NOAA\2019'
-csv_paths = glob(os.path.join(in_dir, '*.csv'))
 
-valid_paths = []
-for csv_path in csv_paths:
-    cur_filename = os.path.basename(csv_path)
-    match = re.search(r"\((-?\d+\.\d+),(-?\d+\.\d+)\)", '54423099999_CHENGDE_CHINA_(117.9166666,40.9666666).csv')
-    lon, lat = float(match.group(1)), float(match.group(2))
-    lat_max, lon_min, lat_min, lon_max = Config.lon_lat_extent
-    if (lon_min <= lon <= lon_max) and (lat_min <= lat <= lat_max):
-        valid_paths.append(csv_path)
+# 准备
+station_path = r"E:\Datasets\Objects\PrecipitationDownscaling\Station\SURF_CHN_MUL_HOR_STATION.xlsx"
+prcp_path = r"E:\Datasets\Objects\PrecipitationDownscaling\Station\PRCPsc164_monthly_sum.csv"
+
+# 匹配经纬度
+st = pd.read_excel(station_path, dtype={'区站号': str})
+st = st.dropna(axis=0)  # 去除无效的行
+prcp = pd.read_csv(prcp_path)
+prcp = prcp.melt(['Year', 'Month', 'YM'], var_name='station_id', value_name='prcp')  # 宽格式转化为长格式
+prcp['station_id'] = prcp['station_id'].str[1:]
+a1 = pd.merge(prcp, st, 'left', left_on='station_id', right_on='区站号')
+
 
 

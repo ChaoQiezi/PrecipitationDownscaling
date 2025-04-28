@@ -23,7 +23,8 @@ gdal.UseExceptions()  # 使用异常错误机制(存在错误即报错而不是�
 
 # 准备
 gpm_dir = r'G:\GPM_IMERG_V07\Final_Month'
-out_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\GPM_IMERG'
+# out_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\GPM_IMERG'
+out_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\GPM_IMERG\mm_hr'
 res_folder_name = '0.1deg'
 out_res = 0.1
 out_dir = os.path.join(out_dir, res_folder_name)
@@ -33,7 +34,7 @@ if not os.path.exists(out_dir):  # 不存在则创建文件夹
 # 检索和迭代处理
 gpm_paths = glob(os.path.join(gpm_dir, '3B-MO.MS.MRG.3IMERG.*.HDF5'))  # 迭代获取原始的GPM降水数据集(.HDF5文件)
 for hdf_path in gpm_paths:
-    hdf2tiff(hdf_path, out_dir)
+    hdf2tiff(hdf_path, out_dir, unit_conversion=1)
     print('输出Geotiff成功: {}'.format(os.path.basename(hdf_path)))
 dealt_tiff_paths = glob(os.path.join(out_dir, 'GPM*.tif'))  # 迭代获取hdf2tiff函数输出的geotiff文件
 for tiff_path in dealt_tiff_paths:

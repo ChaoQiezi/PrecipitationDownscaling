@@ -228,11 +228,11 @@ class DownloadManager:
             print('您已中断下载程序; 下次下载将继续从({}/{})处下载...'.format(self.downloaded_count, self.link_count))
             exit(1)  # 错误退出
         except Exception as e:
-            print('下载异常错误: {};\n下次下载将继续从({}/{})处下载...'.format(e, self.downloaded_count, self.link_count))
+            print(
+                '下载异常错误: {};\n下次下载将继续从({}/{})处下载...'.format(e, self.downloaded_count, self.link_count))
             exit(1)  # 错误退出
         finally:
             self._update()  # 无论是否发生异常, 最后都必须保存当前下载状态, 以备下次下载继续从断开处进行
-
 
     def download_single(self, url, filename=None, wait_time=None):
         """
@@ -377,11 +377,12 @@ class DownloadManager:
         # self.pbar.refresh()  # 立即刷新显示
 
 
-def hdf2tiff(hdf_path, out_dir):
+def hdf2tiff(hdf_path, out_dir, unit_conversion=2):
     """
     将输入的hdf5文件(GPM降水数据)输出为geotiff文件
     :param hdf_path: 输入的hdf5文件的路径
     :param out_dir: 输出的geotiff文件的目录
+    :param unit_conversion: 单位换算, 0表示mm/hr, 1表示mm/day(日累计降水量), 2表示mm/月(月累积降水量)
     :return: None
     """
 
@@ -414,10 +415,15 @@ def hdf2tiff(hdf_path, out_dir):
         # 无效值设置
         var[var == var_fill_value] = np.nan
         # 计算每月降水量/单位换算 (mm/hr ==> mm/月)
-        date_str = os.path.basename(hdf_path).split('3B-MO.MS.MRG.3IMERG.')[1][:6]
-        year, month = int(date_str[:4]), int(date_str[4:])
-        mdays = calendar.monthrange(year, month)[1]  # 计算当前月份的总天数
-        var = var * 24 * mdays  # 计算每月降水量
+        if unit_conversion == 2:  # 换算为每月降水量
+            date_str = os.path.basename(hdf_path).split('3B-MO.MS.MRG.3IMERG.')[1][:6]
+            year, month = int(date_str[:4]), int(date_str[4:])
+            mdays = calendar.monthrange(year, month)[1]  # 计算当前月份的总天数
+            var = var * 24 * mdays  # 计算每月降水量
+        elif unit_conversion == 1:  # 换算为每天累计降水量
+            var = var * 24
+        elif unit_conversion == 0:  # 什么也不需要做
+            pass
     # 输出
     out_tiff_name = 'GPM_{}_{:02}.tif'.format(time.year, time.month)
     out_tiff_path = os.path.join(out_dir, out_tiff_name)
@@ -474,7 +480,6 @@ def nc2tiff(nc_path, tiff_path, var_name):
     b1.ComputeStatistics(False)  # 计算统计数据,方便显示(False不粗略显示)
 
     ds = None
-
 
 
 def clip_mask(tiff_path, shp_path, out_path, out_res, resample_alg=2, remove_src=False, dst_nodata=None):
@@ -638,7 +643,7 @@ def img_mosaic(mosaic_paths: list, mosaic_ds_name: str, return_all: bool = True,
     return mosaic_img
 
 
-def img_warp(src_img: np.ndarray, out_path: str, transform: list, src_proj4: str, out_res: Union[float, None] =None,
+def img_warp(src_img: np.ndarray, out_path: str, transform: list, src_proj4: str, out_res: Union[float, None] = None,
              nodata_value: Union[int, float] = np.nan, resample: str = 'bilinear', dst_epsg=4326) -> None:
     """
     该函数用于对正弦投影下的栅格矩阵进行重投影(GLT校正), 得到WGS84坐标系下的栅格矩阵并输出为TIFF文件
@@ -745,10 +750,23 @@ def extract1d_lons_lats(img_path):
 
     return lon_edges, lat_edges
 
-def write_tiff(img_arr, dst_path, template_path=None, geo_transform=None):
+
+def write_tiff(img_arr, dst_path, template_path=None, geo_transform=None, nodata_value=None, dtype=gdal.GDT_Float32):
+    """
+    输出单波段的栅格矩阵输出为Geotiff文件
+    :param img_arr: 栅格矩阵
+    :param dst_path: 输出路径
+    :param template_path: 模板文件, 用于获取地理参数
+    :param geo_transform: 地理仿射参数,默认WGS84
+    :param nodata_value: 无效值设置
+    :param dtype: 存储的数据类型, 默认浮点型
+    :return: None
+    """
+
     row, col = img_arr.shape
     driver = gdal.GetDriverByName('GTiff')  # 获取创建geotiff的驱动器
-    img = driver.Create(dst_path, col, row, 1, gdal.GDT_Float32)  # (输出路径, x轴范围, y轴范围, 波段数, 数据类型)
+    img = driver.Create(dst_path, col, row, 1, dtype)  # (输出路径, x轴范围, y轴范围, 波段数, 数据类型)
+    b1 = img.GetRasterBand(1)
 
     # 设置地理参数
     if template_path is not None:
@@ -760,7 +778,13 @@ def write_tiff(img_arr, dst_path, template_path=None, geo_transform=None):
         img.SetGeoTransform(geo_transform)  # 设置仿射系数
 
     # 写入栅格矩阵
-    img.GetRasterBand(1).WriteArray(img_arr)
+    b1.WriteArray(img_arr)
+
+    # 其他设置
+    if nodata_value is not None:
+        b1.SetNoDataValue(nodata_value)
+    b1.ComputeStatistics(False)
+
     img = None
 
 
