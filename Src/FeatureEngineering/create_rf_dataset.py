@@ -32,7 +32,9 @@ lst_night_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\LST_Night"
 ndvi_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\NDVI"
 slope_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\Slope"
 ws_angle_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\wind_slope_angle"
-prcp_class_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\prcp_classification"
+prcp_class_dir = r"E:\Datasets\Objects\PrecipitationDownscaling\prcp_class"
+# res_name = '1km'
+# sample_name = 'test'
 res_name = '0.1deg'
 sample_name = 'train'
 var_names = ['dem', 'aspect', 'slope', 'lon', 'lat', 'ws_angle', 'ndvi', 'evi', 'lst_day', 'lst_night', 'prcp_class']
@@ -58,8 +60,8 @@ da = xr.DataArray(
         coords={
             'date': date_coords,
             'var': var_names,
+            'lat': lats[::-1],  # 数组从上往下第一行区域是纬度最高的地方, 所以纬度要从大到小逆序传入!
             'lon': lons,
-            'lat': lats
         },
         name=sample_name
     )

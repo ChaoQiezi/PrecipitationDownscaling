@@ -10,6 +10,7 @@ This script is used to 存储配置文件
 import os
 from pathlib import Path
 import matplotlib as mpl
+from datetime import datetime
 import matplotlib.pyplot as plt
 mpl.use('QtAgg')  # 防止绘制图表报错
 
@@ -23,9 +24,10 @@ region_path = r'E:\SoftwaresStorage\ArcGISPro_Storage\Projects\PrecipitationDown
 model_dir = os.path.join(root_dir, 'Asset', 'models')
 # 资源文件夹
 resources_dir = os.path.join(root_dir, 'Resources')
-# 进度条样式
-bar_format = "{desc}: {percentage:.0f}%|{bar}| [{n_fmt}/{total_fmt}] [已用时间:{elapsed}, 剩余时间:{remaining}, {postfix}]"
 
+# 数据下载-时间范围
+start_date = datetime(2019, 1, 1)
+end_date = datetime(2023, 12, 31)
 # ERA5的api和key
 my_url = "https://cds.climate.copernicus.eu/api"  # api链接
 my_key = "c70a112c-b210-492d-a7a0-29a7c5356820"  # API密钥(Mine)
@@ -33,6 +35,8 @@ my_key = "c70a112c-b210-492d-a7a0-29a7c5356820"  # API密钥(Mine)
 concurrent_downloads = 6  # 并行下载文件个数
 moniter_interval = 1  # 监测时间间隔, 每隔1s监测一次
 lon_lat_extent = [34.5, 97.3, 21.1, 110.5]  # (最北, 最西, 最南, 最东), 下载范围
+# 下载进度条样式
+bar_format = "{desc}: {percentage:.0f}%|{bar}| [{n_fmt}/{total_fmt}] [已用时间:{elapsed}, 剩余时间:{remaining}, {postfix}]"
 # 初始化ERA5的下载请求
 request = {
     "variable": [],

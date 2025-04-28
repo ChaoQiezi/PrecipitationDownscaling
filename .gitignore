@@ -1,0 +1,9 @@
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/other.xml
+.idea/PrecipitationDownscaling.iml
+.idea/vcs.xml
+__pycache__/Config.cpython-312.pyc
+Src/__pycache__/utils.cpython-312.pyc
+/Asset/models

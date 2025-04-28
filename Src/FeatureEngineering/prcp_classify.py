@@ -2,7 +2,7 @@
 # @Time    : 2025/4/26 上午12:29
 # @Email   : chaoqiezi.one@qq.com
 # @Wechat  : GIS茄子
-# @FileName: prcp_classification
+# @FileName: prcp_classify
 
 """
 This script is used to 针对降水数据进行降水分级/分类,以tiff文件输出分类结果(也可以使用arcgis模型构建器实现)
@@ -36,7 +36,7 @@ from Src.utils import write_tiff
 # 准备
 # in_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\GPM_IMERG\mm_hr\0.1deg'
 in_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\GPM_IMERG\0.1deg'
-out_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\prcp_classification'
+out_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\prcp_class'
 chart_dir = r'F:\PyProJect\PrecipitationDownscaling\Asset\chart'
 deg_name = '0.1deg'
 km_name = '1km'
@@ -53,11 +53,11 @@ for cur_path in gpm_paths:
     with rio.open(cur_path) as src:
         cur_prcp = src.read(1, masked=True)
     # 分级
-    cur_prcp_classification = np.full(cur_prcp.shape, -9999, dtype=np.int32)
-    cur_prcp_classification[cur_prcp <= 20] = 0
-    cur_prcp_classification[(cur_prcp > 20) & (cur_prcp <= 50)] = 1
-    cur_prcp_classification[(cur_prcp > 50) & (cur_prcp <= 100)] = 2
-    cur_prcp_classification[(cur_prcp > 100)] = 3
+    cur_prcp_class = np.full(cur_prcp.shape, -9999, dtype=np.int32)
+    cur_prcp_class[cur_prcp <= 20] = 0
+    cur_prcp_class[(cur_prcp > 20) & (cur_prcp <= 50)] = 1
+    cur_prcp_class[(cur_prcp > 50) & (cur_prcp <= 100)] = 2
+    cur_prcp_class[(cur_prcp > 100)] = 3
     # 输出为0.1deg的分级Geotiff
     cur_filename = os.path.basename(cur_path)  # GPM_2019_01_0.1deg.tif
     out_deg_filename = 'prcp_class_' + cur_filename.split('_', 1)[1]
@@ -66,7 +66,7 @@ for cur_path in gpm_paths:
         meta = src.meta.copy()
     meta.update(dtype='int16', nodata=-9999)
     with rio.open(out_deg_path, 'w', **meta) as src:
-        src.write(cur_prcp_classification, 1)
+        src.write(cur_prcp_class, 1)
     # 重采样为1km(约0.009°)
     with ogr.Open(Config.region_path) as src:
         min_x, max_x, min_y, max_y = src.GetLayer().GetExtent()
