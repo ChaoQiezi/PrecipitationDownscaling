@@ -22,6 +22,7 @@ from rasterio.transform import from_bounds
 from rasterio.plot import show
 import h5py
 import netCDF4 as nc
+import xarray as xr
 import numpy as np
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
@@ -448,7 +449,7 @@ def hdf2tiff(hdf_path, out_dir, unit_conversion=2):
 
 def nc2tiff(nc_path, tiff_path, var_name):
     """
-    将nc格式的ERA文件输出为Geotiff文件
+    将nc格式的ERA5文件输出为Geotiff文件
     :param nc_path: 待处理的nc文件路径
     :param tiff_path: Geotiff文件的输出路径
     :return:
@@ -865,3 +866,176 @@ def cal_wind_slope_angle(out_path, u10_path, v10_path, aspect_path, slope_path):
 
     with rio.open(out_path, 'w', **meta) as f:
         f.write(ws_angle, 1)
+
+
+def predict_model(rf, nc_path, out_nc_path, flag='train'):
+    # 读取输入数据集
+    da = xr.open_dataarray(nc_path)
+    y_pred_reconstructed = xr.full_like(da.isel(var=0).drop_vars('var'), np.nan)  # 创建跟da一样shape的数组
+    da = da.drop_sel(var='prcp_class')  # 剔除prcp_class(该分级的二维矩阵本来是针对不同级别分别训练但是效果不好作罢)
+    if flag == 'train':
+        da = da.drop_sel(var='prcp')  # 若是训练集, 则其中还有prcp(Y项),需剔除(若是test则无需多余处理)
+    da = da.stack(sample=['date', 'lat', 'lon']).transpose('sample', 'var')  # 整理shape
+    da = da.dropna(dim='sample', how='any')  # 剔除存在无效值的样本
+    x = da.values  # 创建X
+
+
+    # 预测和重组shape(复原原来地理位置的二维栅格矩阵)
+    y_pred = rf.predict(x)
+    samples = da['sample'].to_index()
+    dates = samples.get_level_values('date')
+    lats = samples.get_level_values('lat')
+    lons = samples.get_level_values('lon')
+    date_ix = y_pred_reconstructed.date.to_index().get_indexer(dates)
+    lat_ix = y_pred_reconstructed.lat.to_index().get_indexer(lats)
+    lon_ix = y_pred_reconstructed.lon.to_index().get_indexer(lons)
+    y_pred_reconstructed.values[date_ix, lat_ix, lon_ix] = y_pred
+
+    # 输出预测结果(.nc)
+    y_pred_reconstructed.to_netcdf(out_nc_path)
+
+
+def resample_metric(src_arr, ref_path, res=0.009):
+    """
+    将输入的栅格矩阵进行重采样并输出重采样之后的栅格矩阵
+    :param src_arr: 待重采样的栅格矩阵
+    :param ref_path:与输入栅格矩阵同样行列和地理参数等的参考tiff文件
+    :return: 返回重采样好的栅格矩阵
+    :param res: 重采样的分辨率
+    """
+    dem_ds = gdal.Open(ref_path)
+    geo_transform = dem_ds.GetGeoTransform()
+
+    mem_driver = gdal.GetDriverByName('MEM')
+    rows, cols = src_arr.shape
+    # 创建当前0.1°的栅格数据集(在内存中)
+    cur_residual_0p1deg = mem_driver.Create('', cols, rows, 1, gdal.GDT_Float32)
+    cur_residual_0p1deg.SetProjection(dem_ds.GetProjection())
+    cur_residual_0p1deg.SetGeoTransform(geo_transform)
+    cur_residual_0p1deg.GetRasterBand(1).WriteArray(src_arr)
+    cur_residual_0p1deg.GetRasterBand(1).SetNoDataValue(np.nan)
+    options = gdal.WarpOptions(
+        xRes=res,
+        yRes=res,
+        resampleAlg=gdal.GRA_Cubic,  # 重采样算法(选择最近邻是为了防止出现后续叠加出现负数的降水)
+        cutlineDSName=Config.region_path,
+        cropToCutline=True,  # True表示裁剪到矩形范围后继续掩膜, False表示只裁剪到矩形范围
+        targetAlignedPixels=True,  # 对齐像元
+        dstNodata=np.nan,
+        format='MEM'
+    )
+    cur_residual_1km = gdal.Warp('', cur_residual_0p1deg, options=options)
+
+    return cur_residual_1km.GetRasterBand(1).ReadAsArray()
+
+
+def mask_metric(src_arr, ref_path, mask_path):
+    """
+    将输入的栅格矩阵进行掩膜并输出掩膜之后的栅格矩阵
+    :param src_arr: 待掩膜的栅格矩阵
+    :param ref_path:与输入栅格矩阵同样行列和地理参数等的参考tiff文件
+    :param mask_path: 掩膜文件
+    :return: 返回掩膜好的栅格矩阵
+    """
+
+    dem_ds = gdal.Open(ref_path)
+    geo_transform = dem_ds.GetGeoTransform()
+
+    mem_driver = gdal.GetDriverByName('MEM')
+    rows, cols = src_arr.shape
+    # 创建掩膜前的栅格数据集(在内存中)
+    src_img = mem_driver.Create('', cols, rows, 1, gdal.GDT_Float32)
+    src_img.SetProjection(dem_ds.GetProjection())
+    src_img.SetGeoTransform(geo_transform)
+    src_img.GetRasterBand(1).WriteArray(src_arr)
+    src_img.GetRasterBand(1).SetNoDataValue(np.nan)
+    options = gdal.WarpOptions(
+        cutlineDSName=mask_path,
+        cropToCutline=True,  # True表示裁剪到矩形范围后继续掩膜, False表示只裁剪到矩形范围
+        targetAlignedPixels=True,  # 对齐像元
+        dstNodata=np.nan,
+        format='MEM'
+    )
+    mask_img = gdal.Warp('', src_img, options=options)
+
+    return mask_img.GetRasterBand(1).ReadAsArray()
+
+
+def mean_monthly_seasonally_yearly(da, out_dir, template_path):
+    """
+    用于将输入的xr三维降水数据集进行年、季、月均值计算
+    :param da: 待输入的三维xr数据集(date, rows, cols)
+    :param out_dir: 输出文件夹路径
+    :param template_path: 写入tiff文件的参考tiff文件
+    :return: None
+    """
+
+    # 添加坐标
+    da = da.assign_coords(month=da.date.dt.month)  # 添加月坐标
+    da = da.assign_coords(season=da.date.dt.season)  # 添加季节坐标
+    '''
+    DJF	December-January-February	12月、1月、2月	
+    MAM	March-April-May	3月、4月、5月	
+    JJA	June-July-August	6月、7月、8月	
+    SON	September-October-November	9月、10月、11月	
+    '''
+    da = da.assign_coords(year=da.date.dt.year)  # 添加年坐标
+    prcp_1km_pred_monthly = da.groupby('month').mean(dim='date')  # 计算月累计降水量(本来就是月尺度, 因此只需要平均不同年份的月累计降水量即可)
+    prcp_1km_pred_seasonally = da.groupby('season').mean(dim='date') * 3  # 计算季均值
+    prcp_1km_pred_yearly = da.groupby('year').mean(dim='date') * 12  # 计算年均值
+    prcp_1km_pred_yearly_mean = prcp_1km_pred_yearly.mean(dim='year')  # 计算多年平均值
+
+    # 输出-月
+    out_month_dir = os.path.join(out_dir, 'monthly')
+    os.makedirs(out_month_dir, exist_ok=True)
+    for month_ix in prcp_1km_pred_monthly['month'].values:
+        cur_img = prcp_1km_pred_monthly.loc[month_ix, :, :].values
+        cur_out_filename = 'prcp_{:02}_monthly.tif'.format(month_ix)
+        cur_out_path = os.path.join(out_month_dir, cur_out_filename)
+        write_tiff(cur_img, cur_out_path, template_path=template_path, nodata_value=np.nan)
+        print('月均值处理: {}'.format(cur_out_filename))
+    prcp_1km_pred_monthly.to_netcdf(os.path.join(out_month_dir, 'prcp_month_mean.nc'))
+    # 输出-季
+    out_season_dir = os.path.join(out_dir, 'seasonally')
+    os.makedirs(out_season_dir, exist_ok=True)
+    for season_ix in prcp_1km_pred_seasonally['season'].values:
+        cur_img = prcp_1km_pred_seasonally.loc[season_ix, :, :].values
+        cur_out_filename = 'prcp_{}_seasonally.tif'.format(season_ix)
+        cur_out_path = os.path.join(out_season_dir, cur_out_filename)
+        write_tiff(cur_img, cur_out_path, template_path=template_path, nodata_value=np.nan)
+        print('季均值处理: {}'.format(cur_out_filename))
+    prcp_1km_pred_seasonally.to_netcdf(os.path.join(out_season_dir, 'prcp_season_mean.nc'))
+    # 输出-年
+    out_year_dir = os.path.join(out_dir, 'yearly')
+    os.makedirs(out_year_dir, exist_ok=True)
+    for season_ix in prcp_1km_pred_yearly['year'].values:
+        cur_img = prcp_1km_pred_yearly.loc[season_ix, :, :].values
+        cur_out_filename = 'prcp_{}_yearly.tif'.format(season_ix)
+        cur_out_path = os.path.join(out_year_dir, cur_out_filename)
+        write_tiff(cur_img, cur_out_path, template_path=template_path, nodata_value=np.nan)
+        print('季均值处理: {}'.format(cur_out_filename))
+    prcp_1km_pred_yearly.to_netcdf(os.path.join(out_year_dir, 'prcp_year_mean.nc'))
+    # 输出-多年平均值
+    out_out_path = os.path.join(out_year_dir, 'prcp_yearly_mean.tif')
+    write_tiff(prcp_1km_pred_yearly_mean.values, out_out_path, template_path=template_path, nodata_value=np.nan)
+
+
+def extract_year_season(year, month):
+    """
+    依据年和月计算所属年份下的季节
+    :param year: 年份
+    :param month: 月份
+    :return: (年份, 季节)
+
+    DJF	December-January-February	12月、1月、2月
+    MAM	March-April-May	3月、4月、5月
+    JJA	June-July-August	6月、7月、8月
+    SON	September-October-November	9月、10月、11月
+    """
+
+    if month < 3:
+        return '{}.{}'.format(year - 1, 'DJF')
+
+    season_ix = (month - 3) // 3
+    seasons = ['MAM', 'JJA', 'SON', 'DJF']
+    return '{}.{}'.format(year, seasons[season_ix])

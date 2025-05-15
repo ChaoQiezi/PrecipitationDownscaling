@@ -13,6 +13,8 @@ import matplotlib as mpl
 from datetime import datetime
 import matplotlib.pyplot as plt
 mpl.use('QtAgg')  # 防止绘制图表报错
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体为黑体
+plt.rcParams['axes.unicode_minus'] = False    # 解决负号显示异常
 
 # 设置项目根文件夹为当前工作目录
 root_dir = Path(__file__).resolve().parent

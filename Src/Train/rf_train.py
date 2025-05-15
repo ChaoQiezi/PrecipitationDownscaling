@@ -44,10 +44,10 @@ if os.path.exists(cur_model_path) and not force_train:
     rf = joblib.load(cur_model_path)
 else:
     rf = RandomForestRegressor(  # 定义模型
-        n_estimators=500,  # 初始树的数量
+        n_estimators=300,  # 初始树的数量
         bootstrap=True,  # 启用 Bootstrap 采样
         oob_score=True,  # 启用 OOB 评估
-        n_jobs=-1,  # 使用所有 CPU 核心
+        n_jobs=8,  # 使用所有 CPU 核心
         random_state=Config.random_state  # 固定随机种子
     )
     rf.fit(x_train, y_train)
