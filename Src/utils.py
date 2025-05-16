@@ -929,14 +929,20 @@ def resample_metric(src_arr, ref_path, res=0.009):
     return cur_residual_1km.GetRasterBand(1).ReadAsArray()
 
 
-def mask_metric(src_arr, ref_path, mask_path):
+def mask_metric(src_arr, ref_path, mask_path, res=0.009, out_path=''):
     """
     将输入的栅格矩阵进行掩膜并输出掩膜之后的栅格矩阵
     :param src_arr: 待掩膜的栅格矩阵
     :param ref_path:与输入栅格矩阵同样行列和地理参数等的参考tiff文件
     :param mask_path: 掩膜文件
-    :return: 返回掩膜好的栅格矩阵
+    :param res: 输出分辨率
+    :return: 返回掩膜好的栅格数据集
     """
+
+    if out_path:
+        out_format = 'GTiff'
+    else:
+        out_format = 'MEM'
 
     dem_ds = gdal.Open(ref_path)
     geo_transform = dem_ds.GetGeoTransform()
@@ -949,16 +955,19 @@ def mask_metric(src_arr, ref_path, mask_path):
     src_img.SetGeoTransform(geo_transform)
     src_img.GetRasterBand(1).WriteArray(src_arr)
     src_img.GetRasterBand(1).SetNoDataValue(np.nan)
+
     options = gdal.WarpOptions(
+        xRes=res,
+        yRes=res,
         cutlineDSName=mask_path,
         cropToCutline=True,  # True表示裁剪到矩形范围后继续掩膜, False表示只裁剪到矩形范围
         targetAlignedPixels=True,  # 对齐像元
         dstNodata=np.nan,
-        format='MEM'
+        format=out_format
     )
-    mask_img = gdal.Warp('', src_img, options=options)
+    mask_img = gdal.Warp(out_path, src_img, options=options)
 
-    return mask_img.GetRasterBand(1).ReadAsArray()
+    return mask_img
 
 
 def mean_monthly_seasonally_yearly(da, out_dir, template_path):
@@ -1039,3 +1048,4 @@ def extract_year_season(year, month):
     season_ix = (month - 3) // 3
     seasons = ['MAM', 'JJA', 'SON', 'DJF']
     return '{}.{}'.format(year, seasons[season_ix])
+
