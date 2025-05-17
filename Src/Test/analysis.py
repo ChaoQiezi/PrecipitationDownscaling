@@ -17,10 +17,10 @@ from rasterio.plot import show
 from sklearn.metrics import r2_score, mean_squared_error, root_mean_squared_error
 from scipy.stats import spearmanr, pearsonr
 from matplotlib import pyplot as plt
+from pathlib import Path
 
 import Config
-from Src.utils import extract_year_season
-
+from Src.utils import extract_year_season, extract1d_lons_lats, mask_metric
 
 # 准备
 train_path = r"E:\Datasets\Objects\PrecipitationDownscaling\Samples\rf_train_samples.nc"
@@ -118,7 +118,9 @@ with pd.ExcelWriter(out_path, mode='w') as writer:
         corr, p = pearsonr(prcp_year_df['prcp_0.1deg'], prcp_year_df['prcp_1km'])
         print('{}-R(0.1deg, 1km) = {:0.2}, p={:0.2}'.format(region_name, corr, p))
 
+
 # 04 计算2019-2023年西南地区各个年份下各个季节的平均降水量
+# 整体计算
 prcp_season_mean_box = pd.DataFrame(index=np.arange(2019, 2024), columns=['MAM', 'JJA', 'SON', 'DJF'])
 prcp_1km_pred = xr.open_dataarray(prcp_1km_pred_path)
 years, months = prcp_1km_pred.date.dt.year.values, prcp_1km_pred.date.dt.month.values
@@ -137,6 +139,62 @@ for cur_item in prcp_season_mean:
     prcp_season_mean_box.loc[int(year), season] = cur_item.values.item()
 out_path = os.path.join(out_dir, 'prcp_season_mean_yearly.xlsx')
 prcp_season_mean_box.to_excel(out_path)
+# 分区域计算
+# 分区域计算-掩膜各个城市
+mask_dir = r'E:\SoftwaresStorage\ArcGISPro_Storage\Projects\PrecipitationDownscaling\research_region'
+template_1km_path = r"E:\Datasets\Objects\PrecipitationDownscaling\DEM\sw_china_dem_1km.tif"  # 作为写入tiff文件的参考地理文件使用
+cur_out_dir = Path(prcp_1km_pred_path).parent
+temp_path = r'E:\MyTEMP\temp.tif'
+prcp_1km = xr.open_dataarray(prcp_1km_pred_path)
+region_names = ['Sichuan', 'Chongqing', 'Yunnan', 'Guizhou']
+for region_name in region_names:
+    masked_metric_list = []
+    filename = region_name + '.shp'
+    mask_path = os.path.join(mask_dir, filename)
+    for date_ix in prcp_1km.date.values:
+        cur_metric = prcp_1km.loc[date_ix, :, :].values
+        masked_img = mask_metric(cur_metric, template_1km_path, mask_path, out_path=temp_path)
+        masked_metric_list.append(masked_img.GetRasterBand(1).ReadAsArray())
+        masked_img = None
+    lons, lats = extract1d_lons_lats(temp_path)
+    da = xr.DataArray(
+            data=masked_metric_list,
+            dims=['date', 'lat', 'lon'],
+            coords={
+                'date': prcp_1km.date.values,
+                'lat': lats[::-1],  # 数组从上往下第一行区域是纬度最高的地方, 所以纬度要从大到小逆序传入!
+                'lon': lons,
+            },
+            name='date_{}'.format(region_name)
+        )
+    out_path = os.path.join(cur_out_dir, 'rf_test_pred_by_residual_{}.nc'.format(region_name))
+    da.to_netcdf(out_path)
+    print('掩膜处理(date): {}'.format(region_name))
+# 分区域计算-分省市计算2019-2023年西南地区各个年份下各个季节的平均降水量
+region_names = ['Sichuan', 'Chongqing', 'Yunnan', 'Guizhou']
+out_path = r"E:\Datasets\Objects\PrecipitationDownscaling\Result\table\prcp_season_mean_yearly_region.xlsx"
+with pd.ExcelWriter(out_path, mode='w') as writer:
+    for region_name in region_names:
+        prcp_season_mean_box = pd.DataFrame(index=np.arange(2019, 2024), columns=['MAM', 'JJA', 'SON', 'DJF'])
+        cur_prcp_1km_pred_path = os.path.join(out_dir, 'rf_test_pred_by_residual_{}.nc'.format(region_name))
+        prcp_1km_pred = xr.open_dataarray(cur_prcp_1km_pred_path)
+        years, months = prcp_1km_pred.date.dt.year.values, prcp_1km_pred.date.dt.month.values
+        coord_year_season = xr.DataArray(
+            data=[extract_year_season(y, m) for y, m in zip(years, months)],
+            dims=['date'],
+            coords={'date': prcp_1km_pred.date}
+        )
+        prcp_1km_pred = prcp_1km_pred.assign_coords(year_season=coord_year_season)
+        prcp_season_mean = prcp_1km_pred.groupby('year_season').sum(dim='date')
+        prcp_season_mean = prcp_season_mean.mean(dim=['lat', 'lon'])
+        for cur_item in prcp_season_mean:
+            year, season = cur_item.year_season.values.item().split('.')
+            if int(year) not in prcp_season_mean_box.index:
+                continue
+            prcp_season_mean_box.loc[int(year), season] = cur_item.values.item()
+        prcp_season_mean_box.to_excel(writer, sheet_name=region_name)
+        print('处理: {}'.format(region_name))
+
 
 # 05 计算2019-2023年西南地区各个省市下各个季节的平均降水量
 region_names = ['Sichuan', 'Chongqing', 'Yunnan', 'Guizhou']
@@ -155,13 +213,18 @@ prcp_season_mean_box.to_excel(out_path)
 
 
 # 06 (分地区)计算2019-2023年西南地区多年月均降水量
-in_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\Prediction\rf\monthly'
 region_names = ['Sichuan', 'Chongqing', 'Yunnan', 'Guizhou']
-prcp_month_mean = pd.DataFrame(index=np.arange(1, 13), columns=region_names)
+prcp_month_mean_df = pd.DataFrame(index=np.arange(1, 13), columns=['西南地区', *region_names])
+# 6.1 西南地区
+prcp_month_mean_path = r"E:\Datasets\Objects\PrecipitationDownscaling\Prediction\rf\monthly\prcp_month_mean.nc"
+prcp_month_mean_da = xr.open_dataarray(prcp_month_mean_path)
+prcp_month_mean_df['西南地区'] = prcp_month_mean_da.mean(dim=['lat', 'lon']).values
+# 6.2 分地区
+in_dir = r'E:\Datasets\Objects\PrecipitationDownscaling\Prediction\rf\monthly'
 for region_name in region_names:
     cur_nc_path = os.path.join(in_dir, 'prcp_month_mean_{}.nc'.format(region_name))
     cur_da = xr.open_dataarray(cur_nc_path)
     cur_da = cur_da.mean(dim=['lat', 'lon'])
-    prcp_month_mean[region_name] = cur_da.values
+    prcp_month_mean_df[region_name] = cur_da.values
 out_path = os.path.join(out_dir, 'prcp_month_mean.xlsx')
-prcp_month_mean.to_excel(out_path)
+prcp_month_mean_df.to_excel(out_path)

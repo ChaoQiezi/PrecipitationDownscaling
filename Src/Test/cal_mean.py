@@ -48,7 +48,7 @@ for cur_filename in mask_filenames:
             data=masked_metric_list,
             dims=['month', 'lat', 'lon'],
             coords={
-                'month': np.arange(1, 13),
+                'month': prcp_month_mean.month.values,
                 'lat': lats[::-1],  # 数组从上往下第一行区域是纬度最高的地方, 所以纬度要从大到小逆序传入!
                 'lon': lons,
             },
@@ -74,7 +74,7 @@ for cur_filename in mask_filenames:
             data=masked_metric_list,
             dims=['season', 'lat', 'lon'],
             coords={
-                'season': ['MAM', 'JJA', 'SON', 'DJF'],
+                'season': prcp_season_mean.season.values,
                 'lat': lats[::-1],  # 数组从上往下第一行区域是纬度最高的地方, 所以纬度要从大到小逆序传入!
                 'lon': lons,
             },
