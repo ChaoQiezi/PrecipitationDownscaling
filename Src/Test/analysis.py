@@ -47,6 +47,21 @@ for date_step in range(len(da)):
 out_path = os.path.join(out_dir, 'all_prcp_st.xlsx')
 prcp_df['YM'] = prcp_df['date'].dt.strftime('%Y/%m')
 prcp_df.to_excel(out_path, index=False)
+# 分季节导出prcp_df
+season_map = {
+    12: 'winter', 1: 'winter', 2: 'winter',
+    3: 'spring', 4: 'spring', 5: 'spring',
+    6: 'summer', 7: 'summer', 8: 'summer',
+    9: 'autumn', 10: 'autumn', 11: 'autumn'
+}
+prcp_df['season'] = prcp_df.date.dt.month.map(season_map)
+prcp_season_df = prcp_df[['Year', 'season', 'station_id', 'prcp_st', 'prcp_0.1deg', 'prcp_1km']].groupby(['Year', 'season', 'station_id']).mean(['prcp_st', 'prcp_0.1deg', 'prcp_1km'])
+prcp_season_df = prcp_season_df.reset_index()
+out_path = os.path.join(out_dir, 'all_prcp_st_season.xlsx')
+with pd.ExcelWriter(out_path, mode='w') as writer:
+    for cur_season in prcp_season_df['season'].unique():
+        prcp_season_df[prcp_season_df['season'] == cur_season].to_excel(writer, index=False, sheet_name=cur_season)
+
 
 # 01 计算每个站点精度指标
 st_ids = prcp_df['station_id'].unique()
@@ -228,3 +243,5 @@ for region_name in region_names:
     prcp_month_mean_df[region_name] = cur_da.values
 out_path = os.path.join(out_dir, 'prcp_month_mean.xlsx')
 prcp_month_mean_df.to_excel(out_path)
+
+
